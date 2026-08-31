@@ -1,13 +1,13 @@
 # Windows notifications for Codex CLI, Claude Code, and Pi
 
-A shared Windows 11 toast notifier with thin adapters for the three coding CLIs used on this workstation.
+A shared Windows 11 toast notifier with thin adapters for Codex CLI, Claude Code, and Pi.
 
 ## Design
 
 - **Codex CLI**: user-level `Stop` hook. Current Codex sends the hook JSON over stdin, including `cwd` and `last_assistant_message`. This deliberately avoids the legacy `notify = [...]` argv payload, which can hit the Windows command-line length limit on long turns.
 - **Claude Code**: user-level `Stop` hook. It consumes `last_assistant_message` directly instead of racing the transcript file.
 - **Pi**: extension records the last `turn_end` assistant text and sends the notification on `agent_settled`, so retries, compaction recovery, or queued continuation do not trigger a premature toast.
-- **Shared layer**: Windows PowerShell 5.1/WinRT `ToastNotificationManager`. PowerShell 7 runs the installer, while the toast adapters use Windows PowerShell because PowerShell 7 does not expose the required WinRT projection on this workstation. No third-party PowerShell module is required.
+- **Shared layer**: Windows PowerShell 5.1/WinRT `ToastNotificationManager`. PowerShell 7 runs the installer, while the toast adapters use Windows PowerShell 5.1 because its .NET Framework host exposes the legacy `ContentType=WindowsRuntime` projection directly. PowerShell 7 runs on modern .NET and needs additional Windows SDK .NET interop assemblies for the same projection; this project avoids that dependency.
 
 The default AppUserModelID is Windows Terminal:
 
@@ -30,7 +30,7 @@ The installer is additive and idempotent:
 - copies the shared runtime to `~/.agent-hooks/windows-notify`;
 - appends one Codex `Stop` matcher group to the existing `~/.codex/hooks.json` without replacing title/tty7/other hooks;
 - appends one Claude Code `Stop` matcher group to `~/.claude/settings.json` without replacing existing hooks;
-- installs `~/.pi/agent/extensions/windows-notify.ts`;
+- installs Pi from `git:https://github.com/nonlog/windows-cli-notify`, so `pi update` can update the extension; an old local `~/.pi/agent/extensions/windows-notify.ts` copy is backed up and removed during migration;
 - creates timestamped backups before modifying an existing config file.
 
 Codex requires a one-time review for changed non-managed hooks. Open `/hooks` and trust the newly added `Stop` hook after installation.
@@ -75,6 +75,8 @@ Edit the installed `~/.agent-hooks/windows-notify/notify-config.json` or the rep
 ```
 
 Failures are best-effort logged to `%LOCALAPPDATA%\AgentHooks\windows-notify.log` and never fail an agent turn.
+
+Pi can also be installed independently with `pi install git:https://github.com/nonlog/windows-cli-notify`. When loaded as a Pi Git package, the extension uses the repository's bundled `shared/notify.ps1`; the `~/.agent-hooks/windows-notify` fallback remains for local/manual installs.
 
 ## Tests
 
