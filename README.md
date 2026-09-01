@@ -47,7 +47,7 @@ The batch wrapper may quote its own script paths safely after Codex has launched
 
 ## Foreground suppression
 
-By default a toast is suppressed while **Windows Terminal itself is the foreground process**, because the user is already looking at CLI output. Set this to `false` if you want every completion to toast:
+Foreground suppression is disabled by default so every completion can toast, even while Windows Terminal is in the foreground. Set this to `true` only if you explicitly want to suppress those notifications:
 
 ```json
 {
@@ -68,7 +68,7 @@ Edit the installed `~/.agent-hooks/windows-notify/notify-config.json` or the rep
   "appId": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
   "maxMessageChars": 420,
   "maxCwdChars": 140,
-  "suppressWhenWindowsTerminalForeground": true,
+  "suppressWhenWindowsTerminalForeground": false,
   "showWorkingDirectory": true,
   "logFailures": true
 }
