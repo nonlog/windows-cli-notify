@@ -5,8 +5,8 @@ A shared Windows 11 toast notifier with thin adapters for Codex CLI, Claude Code
 ## Design
 
 - **Codex CLI**: user-level `Stop` hook. Current Codex sends the hook JSON over stdin, including `cwd` and `last_assistant_message`. This deliberately avoids the legacy `notify = [...]` argv payload, which can hit the Windows command-line length limit on long turns.
-- **Claude Code**: user-level `Stop` hook. It consumes `last_assistant_message` directly instead of racing the transcript file.
-- **Pi**: extension records the last `turn_end` assistant text and sends the notification on `agent_settled`, so retries, compaction recovery, or queued continuation do not trigger a premature toast.
+- **Claude Code**: user-level `Stop` hook. It consumes `last_assistant_message` directly instead of racing the transcript file. On Windows the installer uses Claude Code exec-form hooks (`powershell.exe` + `args`) so stdin reaches the adapter without a nested `cmd.exe` shell.
+- **Pi**: extension records the last `turn_end` assistant text and sends the notification on `agent_settled`, so retries, compaction recovery, or queued continuation do not trigger a premature toast. The handler awaits the short-lived PowerShell notifier (hard-capped at 3 seconds) so print-mode shutdown cannot terminate it before the toast is submitted.
 - **Shared layer**: Windows PowerShell 5.1/WinRT `ToastNotificationManager`. PowerShell 7 runs the installer, while the toast adapters use Windows PowerShell 5.1 because its .NET Framework host exposes the legacy `ContentType=WindowsRuntime` projection directly. PowerShell 7 runs on modern .NET and needs additional Windows SDK .NET interop assemblies for the same projection; this project avoids that dependency.
 
 The default AppUserModelID is Windows Terminal:
@@ -29,7 +29,7 @@ The installer is additive and idempotent:
 
 - copies the shared runtime to `~/.agent-hooks/windows-notify`;
 - appends one Codex `Stop` matcher group to the existing `~/.codex/hooks.json` without replacing title/tty7/other hooks;
-- appends one Claude Code `Stop` matcher group to `~/.claude/settings.json` without replacing existing hooks;
+- appends or migrates one Claude Code `Stop` matcher group in `~/.claude/settings.json` without replacing unrelated hooks; the Windows handler uses exec form rather than `cmd.exe`;
 - installs Pi from `git:https://github.com/nonlog/windows-cli-notify`, so `pi update` can update the extension; an old local `~/.pi/agent/extensions/windows-notify.ts` copy is backed up and removed during migration;
 - creates timestamped backups before modifying an existing config file.
 

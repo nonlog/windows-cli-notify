@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+const NOTIFY_TIMEOUT_MS = 3000;
+
 function assistantText(message: any): string {
   if (!message || message.role !== "assistant" || !Array.isArray(message.content)) return "";
   return message.content
@@ -22,23 +24,46 @@ function notifierScript(): string | undefined {
   return path.join(home, ".agent-hooks", "windows-notify", "shared", "notify.ps1");
 }
 
-function notify(payload: Record<string, unknown>): void {
+async function notify(payload: Record<string, unknown>): Promise<void> {
   if (process.platform !== "win32") return;
   const script = notifierScript();
   if (!script) return;
-  try {
-    const child = spawn(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script],
-      { windowsHide: true, stdio: ["pipe", "ignore", "ignore"] },
-    );
-    child.on("error", () => {});
+
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  const powershell = systemRoot
+    ? path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    : "powershell.exe";
+
+  await new Promise<void>((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(
+        powershell,
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script],
+        { windowsHide: true, stdio: ["pipe", "ignore", "ignore"] },
+      );
+    } catch {
+      resolve();
+      return;
+    }
+
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      try { child.kill(); } catch {}
+      finish();
+    }, NOTIFY_TIMEOUT_MS);
+
+    child.once("error", finish);
+    child.once("close", finish);
     child.stdin.on("error", () => {});
     child.stdin.end(JSON.stringify(payload));
-    child.unref();
-  } catch {
-    // Notification failures must never affect the Pi agent loop.
-  }
+  });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -56,16 +81,17 @@ export default function (pi: ExtensionAPI) {
     lastCwd = ctx.cwd;
   });
 
-  pi.on("agent_settled", (_event, ctx) => {
+  pi.on("agent_settled", async (_event, ctx) => {
     const message = lastAssistantMessage.trim();
     if (!message) return;
-    notify({
+    const cwd = lastCwd || ctx.cwd;
+    lastAssistantMessage = "";
+    await notify({
       source: "Pi",
       event: "complete",
       title: "Pi completed",
       message,
-      cwd: lastCwd || ctx.cwd,
+      cwd,
     });
-    lastAssistantMessage = "";
   });
 }

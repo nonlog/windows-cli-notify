@@ -7,7 +7,7 @@ function Get-AgentNotifyConfig {
         appId = 'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App'
         maxMessageChars = 420
         maxCwdChars = 140
-        suppressWhenWindowsTerminalForeground = $true
+        suppressWhenWindowsTerminalForeground = $false
         showWorkingDirectory = $true
         logFailures = $true
     }

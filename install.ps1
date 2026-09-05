@@ -76,16 +76,49 @@ if (-not $SkipClaude) {
     $doc = Get-JsonHashtable -Path $settingsPath -Default ([ordered]@{})
     if (-not $doc.ContainsKey('hooks') -or $null -eq $doc.hooks) { $doc.hooks = [ordered]@{} }
     if (-not $doc.hooks.ContainsKey('Stop')) { $doc.hooks.Stop = @() }
-    $command = 'cmd.exe /d /c ' + (Join-Path $InstallRoot 'adapters\claude-stop.cmd')
-    if (-not (Test-HookCommand -Groups $doc.hooks.Stop -Command $command)) {
+
+    # Claude Code 2.1.x supports exec-form command hooks. Use it on Windows so the
+    # Stop JSON goes directly to PowerShell stdin instead of passing through a nested
+    # cmd.exe shell, which can consume the JSON as interactive command input.
+    $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $scriptPath = Join-Path $InstallRoot 'adapters\claude-stop.ps1'
+    $legacyCommand = 'cmd.exe /d /c ' + (Join-Path $InstallRoot 'adapters\claude-stop.cmd')
+    $handler = [ordered]@{
+        type = 'command'
+        command = $powershellExe
+        args = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath)
+        timeout = 15
+    }
+
+    $found = $false
+    $changed = $false
+    foreach ($group in @($doc.hooks.Stop)) {
+        if ($null -eq $group -or -not $group.ContainsKey('hooks')) { continue }
+        for ($i = 0; $i -lt @($group.hooks).Count; $i++) {
+            $existing = @($group.hooks)[$i]
+            if ($null -eq $existing -or -not $existing.ContainsKey('command')) { continue }
+            $existingCommand = [string]$existing.command
+            $existingArgs = if ($existing.ContainsKey('args')) { @($existing.args) } else { @() }
+            $isLegacy = $existingCommand -eq $legacyCommand
+            $argsMatch = ($existingArgs.Count -eq $handler.args.Count) -and (($existingArgs -join "`0") -eq (@($handler.args) -join "`0"))
+            $isExec = ($existingCommand -eq $powershellExe) -and $argsMatch
+            $isRelatedExec = ($existingCommand -eq $powershellExe) -and ($existingArgs -contains $scriptPath)
+            if (-not ($isLegacy -or $isExec -or $isRelatedExec)) { continue }
+
+            if (-not $isExec -or $existing.timeout -ne 15) {
+                $group.hooks[$i] = $handler
+                $changed = $true
+            }
+            $found = $true
+        }
+    }
+
+    if (-not $found) {
+        $doc.hooks.Stop = @($doc.hooks.Stop) + @([ordered]@{ hooks = @($handler) })
+        $changed = $true
+    }
+    if ($changed) {
         Backup-File $settingsPath
-        $doc.hooks.Stop = @($doc.hooks.Stop) + @([ordered]@{
-            hooks = @([ordered]@{
-                type = 'command'
-                command = $command
-                timeout = 15
-            })
-        })
         Save-JsonHashtable -Path $settingsPath -Value $doc
     }
 }
