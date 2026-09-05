@@ -1,0 +1,2 @@
+# Pi installs git packages with npm install; do not dirty the package clone with an install-only lockfile.
+package-lock.json
