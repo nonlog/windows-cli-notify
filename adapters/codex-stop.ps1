@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path $PSScriptRoot -Parent) 'shared\notify-lib.ps1')
 
 try {
-    $raw = [Console]::In.ReadToEnd()
+    $raw = Read-AgentNotifyStdinUtf8
     if ([string]::IsNullOrWhiteSpace($raw)) { exit 0 }
     $event = $raw | ConvertFrom-Json
     if ([string]$event.hook_event_name -ne 'Stop') { exit 0 }

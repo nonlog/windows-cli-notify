@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'notify-lib.ps1')
 
 try {
-    $raw = [Console]::In.ReadToEnd()
+    $raw = Read-AgentNotifyStdinUtf8
     if ([string]::IsNullOrWhiteSpace($raw)) { exit 0 }
     $payload = $raw | ConvertFrom-Json
     [void](Send-AgentNotification -Payload $payload -ConfigPath $ConfigPath)

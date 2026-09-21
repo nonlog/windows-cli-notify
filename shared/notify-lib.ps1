@@ -1,5 +1,20 @@
 Set-StrictMode -Version Latest
 
+function Read-AgentNotifyStdinUtf8 {
+    $stream = [Console]::OpenStandardInput()
+    $reader = [System.IO.StreamReader]::new(
+        $stream,
+        [System.Text.UTF8Encoding]::new($false),
+        $true,
+        4096,
+        $true
+    )
+    try {
+        return $reader.ReadToEnd()
+    } finally {
+        $reader.Dispose()
+    }
+}
 function Get-AgentNotifyConfig {
     param([string]$ConfigPath)
 
