@@ -1,13 +1,18 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path $PSScriptRoot -Parent) 'shared\notify-lib.ps1')
+. (Join-Path $PSScriptRoot 'codex-common.ps1')
 
 try {
     $raw = Read-AgentNotifyStdinUtf8
     if ([string]::IsNullOrWhiteSpace($raw)) { exit 0 }
     $event = $raw | ConvertFrom-Json
     if ([string]$event.hook_event_name -ne 'Stop') { exit 0 }
+    if (-not (Test-CodexHookEventUserFacing -Event $event)) { exit 0 }
+
     $message = [string]$event.last_assistant_message
     if ([string]::IsNullOrWhiteSpace($message)) { exit 0 }
+    if (Test-CodexInternalControlMessage -Text $message) { exit 0 }
+
     $payload = [pscustomobject]@{
         source = 'Codex'
         event = 'complete'

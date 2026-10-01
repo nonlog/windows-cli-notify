@@ -55,18 +55,52 @@ if (-not $SkipCodex) {
     $hooksPath = Join-Path $userHome '.codex\hooks.json'
     $doc = Get-JsonHashtable -Path $hooksPath -Default ([ordered]@{ hooks = [ordered]@{} })
     if (-not $doc.ContainsKey('hooks') -or $null -eq $doc.hooks) { $doc.hooks = [ordered]@{} }
+    $changed = $false
+
     if (-not $doc.hooks.ContainsKey('Stop')) { $doc.hooks.Stop = @() }
-    $command = 'cmd.exe /d /c ' + (Join-Path $InstallRoot 'adapters\codex-stop.cmd')
-    if (-not (Test-HookCommand -Groups $doc.hooks.Stop -Command $command)) {
-        Backup-File $hooksPath
+    $stopCommand = 'cmd.exe /d /c ' + (Join-Path $InstallRoot 'adapters\codex-stop.cmd')
+    if (-not (Test-HookCommand -Groups $doc.hooks.Stop -Command $stopCommand)) {
         $doc.hooks.Stop = @($doc.hooks.Stop) + @([ordered]@{
             hooks = @([ordered]@{
                 type = 'command'
-                command = $command
-                commandWindows = $command
+                command = $stopCommand
+                commandWindows = $stopCommand
                 timeout = 15
             })
         })
+        $changed = $true
+    }
+
+    $attentionCommand = 'cmd.exe /d /c ' + (Join-Path $InstallRoot 'adapters\codex-attention.cmd')
+    if (-not $doc.hooks.ContainsKey('PreToolUse')) { $doc.hooks.PreToolUse = @() }
+    if (-not (Test-HookCommand -Groups $doc.hooks.PreToolUse -Command $attentionCommand)) {
+        $doc.hooks.PreToolUse = @($doc.hooks.PreToolUse) + @([ordered]@{
+            matcher = 'request_user_input'
+            hooks = @([ordered]@{
+                type = 'command'
+                command = $attentionCommand
+                commandWindows = $attentionCommand
+                timeout = 15
+            })
+        })
+        $changed = $true
+    }
+
+    if (-not $doc.hooks.ContainsKey('PermissionRequest')) { $doc.hooks.PermissionRequest = @() }
+    if (-not (Test-HookCommand -Groups $doc.hooks.PermissionRequest -Command $attentionCommand)) {
+        $doc.hooks.PermissionRequest = @($doc.hooks.PermissionRequest) + @([ordered]@{
+            hooks = @([ordered]@{
+                type = 'command'
+                command = $attentionCommand
+                commandWindows = $attentionCommand
+                timeout = 15
+            })
+        })
+        $changed = $true
+    }
+
+    if ($changed) {
+        Backup-File $hooksPath
         Save-JsonHashtable -Path $hooksPath -Value $doc
     }
 }
@@ -117,6 +151,50 @@ if (-not $SkipClaude) {
         $doc.hooks.Stop = @($doc.hooks.Stop) + @([ordered]@{ hooks = @($handler) })
         $changed = $true
     }
+
+    $attentionScriptPath = Join-Path $InstallRoot 'adapters\claude-attention.ps1'
+    $attentionArgs = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $attentionScriptPath)
+    $attentionSpecs = @(
+        [ordered]@{ event = 'PreToolUse'; matcher = 'AskUserQuestion' },
+        [ordered]@{ event = 'Notification'; matcher = 'permission_prompt' },
+        [ordered]@{ event = 'Notification'; matcher = 'elicitation_dialog' },
+        [ordered]@{ event = 'Notification'; matcher = 'agent_needs_input' }
+    )
+
+    foreach ($spec in $attentionSpecs) {
+        $eventName = [string]$spec.event
+        $matcher = [string]$spec.matcher
+        if (-not $doc.hooks.ContainsKey($eventName)) { $doc.hooks[$eventName] = @() }
+
+        $exists = $false
+        foreach ($group in @($doc.hooks[$eventName])) {
+            if ($null -eq $group -or [string]$group.matcher -ne $matcher -or -not $group.ContainsKey('hooks')) { continue }
+            foreach ($existing in @($group.hooks)) {
+                if ($null -eq $existing -or -not $existing.ContainsKey('command')) { continue }
+                $existingArgs = if ($existing.ContainsKey('args')) { @($existing.args) } else { @() }
+                $argsMatch = ($existingArgs.Count -eq $attentionArgs.Count) -and (($existingArgs -join "`0") -eq ($attentionArgs -join "`0"))
+                if ([string]$existing.command -eq $powershellExe -and $argsMatch) {
+                    $exists = $true
+                    break
+                }
+            }
+            if ($exists) { break }
+        }
+
+        if (-not $exists) {
+            $doc.hooks[$eventName] = @($doc.hooks[$eventName]) + @([ordered]@{
+                matcher = $matcher
+                hooks = @([ordered]@{
+                    type = 'command'
+                    command = $powershellExe
+                    args = $attentionArgs
+                    timeout = 15
+                })
+            })
+            $changed = $true
+        }
+    }
+
     if ($changed) {
         Backup-File $settingsPath
         Save-JsonHashtable -Path $settingsPath -Value $doc
@@ -146,6 +224,6 @@ if (-not $SkipPi) {
 }
 
 Write-Host "Installed shared notifier to: $InstallRoot"
-if (-not $SkipCodex) { Write-Host 'Codex: open /hooks once and trust the new Stop hook.' }
-if (-not $SkipClaude) { Write-Host 'Claude Code: Stop hook merged into ~/.claude/settings.json.' }
+if (-not $SkipCodex) { Write-Host 'Codex: open /hooks once and trust the windows-notify Stop, PreToolUse, and PermissionRequest hooks.' }
+if (-not $SkipClaude) { Write-Host 'Claude Code: completion and attention hooks merged into ~/.claude/settings.json.' }
 if (-not $SkipPi) { Write-Host 'Pi: Git package installed from nonlog/windows-cli-notify (local-copy fallback only when pi is unavailable).' }

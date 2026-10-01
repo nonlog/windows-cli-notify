@@ -4,9 +4,9 @@ A shared Windows 11 toast notifier with thin adapters for Codex CLI, Claude Code
 
 ## Design
 
-- **Codex CLI**: user-level `Stop` hook. Current Codex sends the hook JSON over stdin, including `cwd` and `last_assistant_message`. This deliberately avoids the legacy `notify = [...]` argv payload, which can hit the Windows command-line length limit on long turns.
-- **Claude Code**: user-level `Stop` hook. It consumes `last_assistant_message` directly instead of racing the transcript file. On Windows the installer uses Claude Code exec-form hooks (`powershell.exe` + `args`) so stdin reaches the adapter without a nested `cmd.exe` shell.
-- **Pi**: extension records the last `turn_end` assistant text and sends the notification on `agent_settled`, so retries, compaction recovery, or queued continuation do not trigger a premature toast. The handler awaits the short-lived PowerShell notifier (hard-capped at 3 seconds) so print-mode shutdown cannot terminate it before the toast is submitted.
+- **Codex CLI**: `Stop` sends completion notifications, `PreToolUse(request_user_input)` notifies when Codex asks a question, and `PermissionRequest` notifies when approval is needed. The `Stop` adapter suppresses known background/synthetic events (non-root transcript sources, stale historical replay, session mismatches, and internal `suggestions`/`exclude` control JSON) so background memory/suggestion jobs do not look like task completion.
+- **Claude Code**: `Stop` sends completion notifications, `PreToolUse(AskUserQuestion)` notifies for structured questions, and selected `Notification` events (`permission_prompt`, `elicitation_dialog`, `agent_needs_input`) notify when user attention is required. On Windows the installer uses Claude Code exec-form hooks (`powershell.exe` + `args`) so stdin reaches the adapter without a nested `cmd.exe` shell.
+- **Pi**: the extension records the last `turn_end` assistant text and sends completion on `agent_settled`. When `@juicesharp/rpiv-ask-user-question` is installed, it also listens to that plugin's stable `rpiv:ask-user:prompt` event and sends a question notification without modifying the plugin.
 - **Shared layer**: Windows PowerShell 5.1/WinRT `ToastNotificationManager`. PowerShell 7 runs the installer, while the toast adapters use Windows PowerShell 5.1 because its .NET Framework host exposes the legacy `ContentType=WindowsRuntime` projection directly. PowerShell 7 runs on modern .NET and needs additional Windows SDK .NET interop assemblies for the same projection; this project avoids that dependency.
 
 The default AppUserModelID is Windows Terminal:
@@ -28,12 +28,12 @@ pwsh -NoProfile -File .\install.ps1
 The installer is additive and idempotent:
 
 - copies the shared runtime to `~/.agent-hooks/windows-notify`;
-- appends one Codex `Stop` matcher group to the existing `~/.codex/hooks.json` without replacing title/tty7/other hooks;
-- appends or migrates one Claude Code `Stop` matcher group in `~/.claude/settings.json` without replacing unrelated hooks; the Windows handler uses exec form rather than `cmd.exe`;
+- appends Codex `Stop`, `PreToolUse(request_user_input)`, and `PermissionRequest` groups to the existing `~/.codex/hooks.json` without replacing unrelated hooks;
+- appends or migrates Claude Code `Stop`, `PreToolUse(AskUserQuestion)`, and selected `Notification` groups in `~/.claude/settings.json` without replacing unrelated hooks; Windows handlers use exec form rather than `cmd.exe`;
 - installs Pi from `git:https://github.com/nonlog/windows-cli-notify`, so `pi update` can update the extension; an old local `~/.pi/agent/extensions/windows-notify.ts` copy is backed up and removed during migration;
 - creates timestamped backups before modifying an existing config file.
 
-Codex requires a one-time review for changed non-managed hooks. Open `/hooks` and trust the newly added `Stop` hook after installation.
+Codex requires a one-time review for changed non-managed hooks. Open `/hooks` and trust the `windows-cli-notify` `Stop`, `PreToolUse`, and `PermissionRequest` hooks after installation.
 
 ## Windows Codex command workaround
 
@@ -94,10 +94,15 @@ pwsh -NoProfile -File .\test-notification.ps1
 
 ## Event behavior
 
-| CLI | Event | Why |
+| CLI | Event | Notification |
 | --- | --- | --- |
-| Codex CLI | `Stop` | Stable stdin payload; avoids legacy argv-size failure |
-| Claude Code | `Stop` | Fires when the main agent finishes responding and exposes `last_assistant_message` |
-| Pi | `agent_settled` | Fires only after retry/compaction/queued continuation is finished |
+| Codex CLI | `Stop` | Foreground/root task completion after background-event filtering |
+| Codex CLI | `PreToolUse(request_user_input)` | Codex asks the user a structured question |
+| Codex CLI | `PermissionRequest` | Codex is waiting for approval |
+| Claude Code | `Stop` | Main-agent completion |
+| Claude Code | `PreToolUse(AskUserQuestion)` | Claude asks a structured question |
+| Claude Code | `Notification` (`permission_prompt`, `elicitation_dialog`, `agent_needs_input`) | Claude requires user attention |
+| Pi | `agent_settled` | Completion after retry/compaction/queued continuation is finished |
+| Pi | `rpiv:ask-user:prompt` | Question emitted by `@juicesharp/rpiv-ask-user-question` |
 
-Subagents are intentionally not notified in the first version.
+Codex subagent/non-root transcript events are intentionally suppressed. Pi's question notification is optional and activates automatically when the ask-user-question plugin emits its public event.

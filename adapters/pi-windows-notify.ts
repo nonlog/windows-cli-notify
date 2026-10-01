@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const NOTIFY_TIMEOUT_MS = 3000;
+const ASK_USER_PROMPT_EVENT = "rpiv:ask-user:prompt";
+
+type AskUserPromptPayload = {
+  questions?: Array<{ question?: string }>;
+};
 
 function assistantText(message: any): string {
   if (!message || message.role !== "assistant" || !Array.isArray(message.content)) return "";
@@ -13,6 +18,17 @@ function assistantText(message: any): string {
     .map((block: any) => block.text)
     .join("\n")
     .trim();
+}
+
+function questionSummary(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const questions = (data as AskUserPromptPayload).questions;
+  if (!Array.isArray(questions) || questions.length === 0) return "";
+  const first = typeof questions[0]?.question === "string" ? questions[0].question.trim() : "";
+  if (!first) return "";
+  const remaining = questions.length - 1;
+  if (remaining <= 0) return first;
+  return `${first}\n+${remaining} more ${remaining === 1 ? "question" : "questions"}`;
 }
 
 function notifierScript(): string | undefined {
@@ -70,8 +86,9 @@ export default function (pi: ExtensionAPI) {
   let lastAssistantMessage = "";
   let lastCwd = "";
 
-  pi.on("agent_start", () => {
+  pi.on("agent_start", (_event, ctx) => {
     lastAssistantMessage = "";
+    lastCwd = ctx.cwd;
   });
 
   pi.on("turn_end", (event, ctx) => {
@@ -79,6 +96,18 @@ export default function (pi: ExtensionAPI) {
     if (!text) return;
     lastAssistantMessage = text;
     lastCwd = ctx.cwd;
+  });
+
+  pi.events.on(ASK_USER_PROMPT_EVENT, (data) => {
+    const message = questionSummary(data);
+    if (!message) return;
+    void notify({
+      source: "Pi",
+      event: "needs_input",
+      title: "Pi needs input",
+      message,
+      cwd: lastCwd || process.cwd(),
+    }).catch(() => {});
   });
 
   pi.on("agent_settled", async (_event, ctx) => {

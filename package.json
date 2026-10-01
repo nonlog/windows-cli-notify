@@ -1,7 +1,7 @@
 {
   "name": "@nonlog/windows-cli-notify",
-  "version": "0.1.1",
-  "description": "Shared Windows 11 completion notifications for Codex CLI, Claude Code, and Pi.",
+  "version": "0.2.0",
+  "description": "Shared Windows 11 completion and attention notifications for Codex CLI, Claude Code, and Pi.",
   "type": "module",
   "author": "nonlog",
   "keywords": [

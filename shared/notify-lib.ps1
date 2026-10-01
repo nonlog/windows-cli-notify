@@ -15,6 +15,25 @@ function Read-AgentNotifyStdinUtf8 {
         $reader.Dispose()
     }
 }
+
+function Get-AgentQuestionSummary {
+    param([AllowNull()] $Questions)
+
+    $items = @($Questions)
+    if ($items.Count -eq 0 -or $null -eq $items[0]) { return '' }
+
+    $question = [string]$items[0].question
+    if ([string]::IsNullOrWhiteSpace($question)) { return '' }
+    $question = $question.Trim()
+
+    if ($items.Count -gt 1) {
+        $remaining = $items.Count - 1
+        $noun = if ($remaining -eq 1) { 'question' } else { 'questions' }
+        return "$question`n+$remaining more $noun"
+    }
+    return $question
+}
+
 function Get-AgentNotifyConfig {
     param([string]$ConfigPath)
 
